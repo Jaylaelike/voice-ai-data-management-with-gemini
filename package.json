@@ -1,0 +1,12 @@
+{
+  "name": "voice-chat-ai",
+  "version": "1.0.0",
+  "description": "แอปพลิเคชัน Voice Chat ภาษาไทยแบบง่ายที่ใช้ Gemini Flash 2.5 API",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "app-backend.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
