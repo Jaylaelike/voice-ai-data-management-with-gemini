@@ -22,6 +22,145 @@ Thai Voice Chat application powered by **Gemini 2.0 Flash** API — supporting v
 
 ---
 
+## 🏗️ Workflow Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          SYSTEM ARCHITECTURE OVERVIEW                           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+  FRONTEND (Browser)             BACKEND (Flask)              EXTERNAL API
+  ══════════════════             ═══════════════              ════════════
+
+  ┌──────────────────┐
+  │  index.html      │──── Frontend Only Mode ──── Uses API key in browser
+  │  (Voice Chat)    │                              directly to Gemini API
+  └──────────────────┘                                        │
+                                                              ▼
+  ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+  │  index-backend   │     │                  │     │                  │
+  │  .html           │────▶│  Flask Server    │────▶│  Google Gemini   │
+  │  (Voice Chat)    │     │  (app.py)        │     │  2.0 Flash API   │
+  └──────────────────┘     │  Port: 4000      │     │                  │
+                           │                  │     └──────────────────┘
+  ┌──────────────────┐     │  Endpoints:      │              │
+  │  index-data-chat │     │  /api/chat       │              │
+  │  .html           │────▶│  /api/data-chat  │◀─────────────┘
+  │  (Data Chat)     │     │  /api/data       │       AI Response
+  └──────────────────┘     │  /api/health     │
+         │                 └────────┬─────────┘
+         │                          │
+         │   app-data-chat.js       │  Read / Write
+         │   (Frontend Logic)       ▼
+         │                 ┌──────────────────┐
+         └────────────────▶│   data.json      │
+                           │   (Local Data)   │
+                           └──────────────────┘
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        VOICE CHAT DATA FLOW                                     │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+  USER                      BROWSER                     BACKEND              GEMINI
+  ════                      ═══════                     ═══════              ══════
+
+  🎤 Speak Thai
+       │
+       │  Web Speech API
+       │  (SpeechRecognition)
+       ▼
+  ┌─────────────┐
+  │  Speech-to- │
+  │  Text (STT) │
+  │  in Browser │
+  └──────┬──────┘
+         │
+         │  Transcribed text
+         ▼
+  ┌─────────────┐      POST /api/chat          ┌─────────────┐
+  │  Frontend   │─────────────────────────────▶│  Flask       │
+  │  JavaScript │      { "message": "..." }    │  app.py      │
+  └─────────────┘                              └──────┬───────┘
+                                                      │
+                                                      │  POST generateContent
+                                                      │  + GEMINI_API_KEY
+                                                      ▼
+                                               ┌─────────────┐
+                                               │  Gemini 2.0 │
+                                               │  Flash API   │
+                                               └──────┬───────┘
+                                                      │
+                                                      │  AI Response (Thai)
+                                                      ▼
+  ┌─────────────┐      JSON Response           ┌─────────────┐
+  │  Display    │◀─────────────────────────────│  Sanitize &  │
+  │  in Chat UI │      { "reply": "..." }      │  Return JSON │
+  └──────┬──────┘                              └──────────────┘
+         │
+         │  Web Speech API
+         │  (SpeechSynthesis)
+         ▼
+  🔊 AI speaks Thai
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         DATA CHAT WORKFLOW                                      │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+  USER                      FRONTEND                    BACKEND              GEMINI
+  ════                      ════════                    ═══════              ══════
+
+  💬 "แก้เงินเดือนเป็น 50000"
+       │
+       ▼
+  ┌─────────────┐      POST /api/data-chat     ┌─────────────┐
+  │  app-data-  │─────────────────────────────▶│  Flask       │
+  │  chat.js    │      { "message": "..." }    │  data_chat() │
+  └─────────────┘                              └──────┬───────┘
+                                                      │
+                                                      │  1. Load data.json
+                                                      │  2. Build prompt with
+                                                      │     system instructions
+                                                      │  3. Send to Gemini
+                                                      ▼
+                                               ┌─────────────┐
+                                               │  Gemini API  │
+                                               │  Analyzes    │
+                                               │  intent      │
+                                               └──────┬───────┘
+                                                      │
+                                                      │  JSON: { action, data,
+                                                      │          reply }
+                                                      ▼
+                                               ┌─────────────┐
+                                               │  action ==   │
+                                               │  "edit" ?    │
+                                               └──┬──────┬────┘
+                                                  │      │
+                                              YES │      │ NO
+                                                  ▼      ▼
+                                            ┌────────┐ ┌────────┐
+                                            │ Save   │ │ Return │
+                                            │ data   │ │ reply  │
+                                            │ .json  │ │ only   │
+                                            └───┬────┘ └───┬────┘
+                                                │          │
+  ┌─────────────┐      JSON Response            │          │
+  │  Update     │◀─────────────────────────────┘──────────┘
+  │  Chat UI &  │      { "reply": "...",
+  │  Data Panel │        "action": "edit/reply",
+  └──────┬──────┘        "data": {...} }
+         │
+         │  Highlights changed fields
+         ▼
+  📊 Data panel refreshed
+```
+
+---
+
 ## 📁 Project Structure
 
 ```
