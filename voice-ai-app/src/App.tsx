@@ -34,7 +34,7 @@ function sanitizeForSpeech(text: string): string {
 
 const WELCOME_MESSAGE: Message = {
   id: 'welcome',
-  text: 'สวัสดีครับ! ผมช่วยดูหรือแก้ไขข้อมูลของคุณได้ เช่น แก้เงินเดือน แก้ชื่อ หรือดูข้อมูลทั้งหมดครับ 😊',
+  text: 'สวัสดีครับ! ผมช่วยดูหรือแก้ไขข้อมูลของคุณได้ และยังสามารถเช็คค่าฝุ่น PM2.5 หรือบอกเวลาปัจจุบันได้ด้วยครับ 😊',
   sender: 'ai',
 };
 
@@ -50,7 +50,7 @@ function AppContent() {
   const [voiceStatusType, setVoiceStatusType] = useState<'' | 'active' | 'error'>('');
 
   // ── Avatar speak hook ──
-  const { speakText: avatarSpeak, isActive: isAvatarActive } = useAvatarSpeak();
+  const { speakText: avatarSpeak, stopSpeaking: stopAvatar, isActive: isAvatarActive } = useAvatarSpeak();
 
   // ── Ref for setMessages so we can call it from the speak function ──
   const setMessagesRef = useRef(setMessages);
@@ -170,6 +170,7 @@ function AppContent() {
         id: nextId(),
         text: 'ขอโทษครับ เกิดข้อผิดพลาด: ' + (err instanceof Error ? err.message : 'Unknown error'),
         sender: 'ai',
+        audioState: 'error'
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
@@ -187,6 +188,20 @@ function AppContent() {
 
   const { isListening, isSupported, error: speechError, toggleListening } =
     useSpeechRecognition(onSpeechResult);
+
+  // ── Handle Mic Toggle with TTS Cutoff ──
+  const handleMicToggle = useCallback(() => {
+    // 1. Stop any ongoing speech (Avatar or Browser)
+    if (isAvatarActive) {
+      stopAvatar();
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    // 2. Toggle mic
+    toggleListening();
+  }, [isAvatarActive, stopAvatar, toggleListening]);
 
   // ── Sync voice status text ──
   useEffect(() => {
@@ -262,7 +277,7 @@ function AppContent() {
               isSupported={isSupported}
               voiceStatus={voiceStatusText}
               voiceStatusType={voiceStatusType}
-              onToggle={toggleListening}
+              onToggle={handleMicToggle}
             />
 
             <TextInput onSend={handleSendMessage} disabled={isLoading} />

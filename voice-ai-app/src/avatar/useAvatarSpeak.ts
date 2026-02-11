@@ -32,5 +32,14 @@ export function useAvatarSpeak() {
         [avatarRef, sessionState],
     );
 
-    return { speakText, isActive };
+    const stopSpeaking = useCallback(async () => {
+        if (!avatarRef.current) return;
+        try {
+            await avatarRef.current.interrupt();
+        } catch (error) {
+            console.error('Avatar interrupt error:', error);
+        }
+    }, [avatarRef]);
+
+    return { speakText, stopSpeaking, isActive };
 }

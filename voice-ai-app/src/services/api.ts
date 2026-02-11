@@ -83,19 +83,33 @@ export async function sendChatMessage(message: string): Promise<ChatResponse> {
     return res.json();
 }
 
+/**
+ * Unified Chat API
+ * Handles both general chat and data operations via the single /api/chat endpoint
+ */
 export async function sendDataChatMessage(message: string): Promise<DataChatResponse> {
     const res = await fetchWithTimeout(
-        `${BASE_URL}/api/data-chat`,
+        `${BASE_URL}/api/chat`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message }),
         },
-        60000  // 60 seconds for AI response
+        60000
     );
+
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(err.error || `Data chat failed: ${res.status}`);
+        throw new Error(err.error || `Chat failed: ${res.status}`);
     }
-    return res.json();
+
+    const json = await res.json();
+
+    // Map backend response to frontend expectations
+    return {
+        response: json.response,
+        status: json.status,
+        data_changed: json.data_changed || false,
+        data: json.updated_data || null // Map 'updated_data' to 'data'
+    };
 }
