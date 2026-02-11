@@ -12,6 +12,9 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
+from google.adk.runners import InMemoryRunner
+from google.genai import types
+import uuid
 
 load_dotenv()
 
@@ -86,17 +89,22 @@ def sanitize_for_speech(text: str) -> str:
     cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
     return cleaned or text
 
+from agents import create_agent
+
+# ... (Previous imports)
+
+
 @app.route('/api/chat', methods=['POST'])
-def chat():
+async def chat():
     """
-    Handle chat requests from frontend
+    Handle chat requests using the ADK Agent (Async).
     """
     if not GEMINI_API_KEY:
         return jsonify({'error': 'API key not configured'}), 500
     
     try:
-        data = request.json
-        user_message = data.get('message', '')
+        req_data = request.json
+        user_message = req_data.get('message', '')
         
         if not user_message:
             return jsonify({'error': 'No message provided'}), 400
@@ -105,56 +113,97 @@ def chat():
             'user_message_preview': user_message[:100]
         })
 
-        # Call Gemini API
-        response = requests.post(
-            f'{GEMINI_API_URL}?key={GEMINI_API_KEY}',
-            json={
-                'contents': [{
-                    'parts': [{
-                        'text': user_message
-                    }]
-                }],
-                'generationConfig': {
-                    'temperature': 0.9,
-                    'topK': 40,
-                    'topP': 0.95,
-                    'maxOutputTokens': 1024,
-                }
-            },
-            timeout=60
+        # 1. Load Data
+        current_data = load_data_json() or {}
+        fields = ', '.join(current_data.keys())
+        json_str = json.dumps(current_data, ensure_ascii=False)
+
+        # 2. Create Agent and Runner
+        agent = create_agent(current_data=json_str, fields=fields)
+        runner = InMemoryRunner(agent=agent)
+        
+        # 3. Create Session Data
+        # We generate a new session ID per request to keep it stateless (like original implementation)
+        # unless we want to implement history.
+        session_id = str(uuid.uuid4())
+        user_id = "user"
+        
+        # Must create session in service first
+        await runner.session_service.create_session(
+            app_name=runner.app_name,
+            user_id=user_id,
+            session_id=session_id
         )
         
-        if response.status_code != 200:
-            logger.error("Gemini API error", extra={
-                'status_code': response.status_code,
-                'body': response.text[:500]
-            })
-            return jsonify({
-                'error': f'Gemini API error: {response.status_code}',
-                'details': response.text
-            }), response.status_code
+        # 4. Prepare Message
+        # ADK expect google.genai.types.Content
+        user_content = types.Content(
+            role="user",
+            parts=[types.Part(text=user_message)]
+        )
+
+        # 5. Run Agent (Streaming)
+        response_chunks = []
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=user_content
+        ):
+            # event is of type google.adk.events.Event
+            # check content parts
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.text:
+                        response_chunks.append(part.text)
         
-        result = response.json()
+        ai_response_text = "".join(response_chunks)
         
-        if 'candidates' in result and result['candidates']:
-            ai_response = result['candidates'][0]['content']['parts'][0]['text']
-            logger.info("/api/chat success", extra={'response_preview': ai_response[:200]})
-            return jsonify({
-                'response': ai_response,
-                'status': 'success'
-            })
-        else:
-            logger.error("No response from AI")
-            return jsonify({'error': 'No response from AI'}), 500
+        # 4. Parse Response (Check for JSON edits)
+        # The agent instruction says it returns JSON for edits: {"reply": "...", "edits": ...}
+        # Or mixed text.
+        
+        reply_text = ai_response_text
+        edits = None
+        data_changed = False
+
+        try:
+            # Try parsing as JSON
+            # Clean up potential markdown code blocks ```json ... ```
+            clean_text = ai_response_text.strip()
+            if clean_text.startswith("```"):
+                clean_text = clean_text.split("\n", 1)[-1].rsplit("\n", 1)[0]
+                if clean_text.startswith("json"):
+                    clean_text = clean_text[4:].strip()
             
-    except requests.exceptions.Timeout:
-        logger.error("Request timeout to Gemini API")
-        return jsonify({'error': 'Request timeout'}), 504
-    except requests.exceptions.RequestException as e:
-        logger.exception("Request to Gemini API failed")
-        return jsonify({'error': f'Request failed: {str(e)}'}), 500
+            ai_json = json.loads(clean_text)
+            
+            if isinstance(ai_json, dict):
+                reply_text = ai_json.get("reply", ai_response_text)
+                edits = ai_json.get("edits")
+        except json.JSONDecodeError:
+            # Not JSON, treat as plain text reply
+            pass
+        
+        # 5. Apply Edits
+        if edits and isinstance(edits, dict):
+            for field, value in edits.items():
+                if field in current_data:
+                    current_data[field] = value
+                    data_changed = True
+            
+            if data_changed:
+                save_data_json(current_data)
+                
+        # 6. Response
+        return jsonify({
+            'response': reply_text,
+            'status': 'success',
+            'data_changed': data_changed, # Optional info for frontend
+            'updated_data': current_data if data_changed else None
+        })
+
     except Exception as e:
-        logger.exception("Unhandled server error")
+        logger.exception("Error in chat endpoint")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/api/health', methods=['GET'])
