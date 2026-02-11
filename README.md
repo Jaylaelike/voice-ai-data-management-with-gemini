@@ -18,7 +18,7 @@ Thai Voice Chat application powered by **Gemini 2.0 Flash** API — supporting v
 
 ## 📸 Screenshots
 
-![Data Chat Page](screenshot/page.png)
+![Data Chat Page](screenshot/page2.png)
 
 ---
 

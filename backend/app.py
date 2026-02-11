@@ -121,7 +121,7 @@ def chat():
                     'maxOutputTokens': 1024,
                 }
             },
-            timeout=30
+            timeout=60
         )
         
         if response.status_code != 200:
@@ -252,7 +252,7 @@ def data_chat():
                     'responseMimeType': 'application/json',
                 }
             },
-            timeout=30
+            timeout=60
         )
 
         if response.status_code != 200:
